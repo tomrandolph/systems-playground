@@ -29,6 +29,9 @@ static malloc_chunk freelist_head =
         .prev = NULL};
 static page *pages = NULL;
 
+#define min_chunk_size sizeof(malloc_chunk)
+#define max(a, b) (a > b ? a : b)
+
 #define can_split_chunk(chunk, size) (chunk->size >= size + sizeof(malloc_chunk))
 #define remove_chunk(chunk)              \
     {                                    \
@@ -109,7 +112,6 @@ void *heap_alloc(size_t size)
     size_t chunk_size = chunk->size;
     void *chunk_data = move_ptr(chunk, sizeof(size_t));
 
-    mchunkptr next_chunk = (mchunkptr)move_ptr(chunk_data, size);
     size_t remaining_space = chunk_size - size;
 
     if (remaining_space <= sizeof(malloc_chunk))
@@ -117,7 +119,9 @@ void *heap_alloc(size_t size)
         printf("Out of memory: Remaining space %zu\n", remaining_space);
         return NULL;
     }
-    next_chunk->size = chunk_size - size - sizeof(size_t); // TODO use pointer arithmetic instead?
+    size_t full_chunk_size = max(sizeof(size_t) + size, min_chunk_size);
+    mchunkptr next_chunk = (mchunkptr)move_ptr(chunk, full_chunk_size);
+    next_chunk->size = chunk_size - full_chunk_size; // TODO use pointer arithmetic instead?
 
     next_chunk->prev = chunk_prev;
     next_chunk->next = chunk_next;
@@ -125,8 +129,22 @@ void *heap_alloc(size_t size)
     chunk_next->prev = next_chunk;
 
     size_t *size_header = (size_t *)chunk;
-    *size_header = size;
+    *size_header = full_chunk_size - sizeof(size_t);
     return chunk_data;
+}
+
+void heap_free(void *ptr)
+{
+    mchunkptr chunk = (mchunkptr)move_ptr(ptr, -sizeof(size_t));
+    size_t chunk_size = *(size_t *)chunk;
+    chunk->size = chunk_size; // TODO probably not needed due to struct ordering
+    mchunkptr first = freelist_head.next;
+    chunk->next = first;
+    chunk->prev = &freelist_head;
+    first->prev->next = chunk;
+    first->prev = chunk;
+    assert((void *)chunk > (void *)pages, "Invalid pointer");
+    assert((void *)chunk->next > (void *)pages, "Invalid next pointer");
 }
 
 bool check_is_free(void *ptr)
@@ -160,7 +178,7 @@ void dump_heap()
                 printf("  ");
             }
             size_t current_chunk_size = *current_chunk;
-            printf("Chunk: %p, size: %zu, inuse: %s", current_chunk, current_chunk_size, bool2str(!check_is_free(current_chunk)));
+            printf("Chunk: %d, size: %zu, inuse: %s", ((char *)current_chunk - (char *)current_page), current_chunk_size, bool2str(!check_is_free(current_chunk)));
             current_chunk = move_ptr(current_chunk, current_chunk_size + sizeof(size_t));
             if (i % 4 == 3)
             {
@@ -180,8 +198,33 @@ void dump_heap()
     }
 }
 
+void dump_freelist()
+{
+    printf("Freelist\n  ");
+    mchunkptr current = freelist_head.next;
+    while (current != &freelist_tail)
+    {
+        printf("Chunk: %d, size: %zu | ", current, current->size);
+        current = current->next;
+    }
+    printf("\n");
+}
+
 #define PVAL 10
 #define QVAL 20
+
+// int main()
+// {
+//     char *p = heap_alloc(3);
+//     // *p = "12345678901234568901234";
+//     dump_heap();
+//     dump_freelist();
+//     printf("p: %p, %u ----------------\n", p, sizeof(size_t));
+//     heap_free(p);
+//     dump_heap();
+//     dump_freelist();
+//     return EXIT_SUCCESS;
+// }
 
 int main()
 {
@@ -215,6 +258,16 @@ int main()
         {
             printf("Memory corrupted\n");
             break;
+        }
+        if (i % 2 == 0)
+        {
+            heap_free(p);
+            total_allocated -= sizeof(to_allocate);
+        }
+        if (i % 4 == 0)
+        {
+            heap_free(q);
+            total_allocated -= sizeof(to_allocate);
         }
     }
     dump_heap();

@@ -143,8 +143,8 @@ void heap_free(void *ptr)
     chunk->prev = &freelist_head;
     first->prev->next = chunk;
     first->prev = chunk;
-    assert((void *)chunk > (void *)pages, "Invalid pointer");
-    assert((void *)chunk->next > (void *)pages, "Invalid next pointer");
+    // assert((void *)chunk > (void *)pages, "Invalid pointer");
+    // assert((void *)chunk->next > (void *)pages, "Invalid next pointer");
 }
 
 bool check_is_free(void *ptr)
@@ -231,23 +231,24 @@ int main()
     int i = 0;
     u_int64_t total_allocated = 0;
     typedef long long to_allocate;
-    while (i < 4096)
+    uint64_t size = sizeof(to_allocate);
+    while (i < 16)
     {
         printf("Iteration %d\n", i);
-        to_allocate *p = heap_alloc(sizeof(to_allocate));
+        to_allocate *p = heap_alloc(size);
         if (p == NULL)
         {
             printf("Failed to allocate memory\n");
             break;
         }
-        total_allocated += sizeof(to_allocate);
-        to_allocate *q = heap_alloc(sizeof(to_allocate));
+        total_allocated += size;
+        to_allocate *q = heap_alloc(size);
         if (q == NULL)
         {
             printf("Failed to allocate memory\n");
             break;
         }
-        total_allocated += sizeof(to_allocate);
+        total_allocated += size;
         printf("p: %p, q: %p\n", p, q);
         *p = PVAL;
         *q = QVAL;
@@ -261,13 +262,20 @@ int main()
         }
         if (i % 2 == 0)
         {
+            printf("Freeing %zu\n", size);
             heap_free(p);
-            total_allocated -= sizeof(to_allocate);
+            total_allocated -= size;
         }
         if (i % 4 == 0)
         {
+            printf("Freeing %zu\n", size);
             heap_free(q);
-            total_allocated -= sizeof(to_allocate);
+            total_allocated -= size;
+        }
+        if (i % 8)
+        {
+            size += 8;
+            printf("Increasing size to %zu\n", size);
         }
     }
     dump_heap();

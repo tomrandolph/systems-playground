@@ -2,16 +2,8 @@
 #include <stdio.h>
 #include <sys/mman.h>
 #include <stdbool.h>
+#include <assert.h>
 #include "alloc.h"
-
-#define assert(cond, msg)       \
-    {                           \
-        if (!(cond))            \
-        {                       \
-            perror(msg);        \
-            exit(EXIT_FAILURE); \
-        }                       \
-    }
 
 #define PVAL 10
 #define QVAL 20

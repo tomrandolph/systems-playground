@@ -121,7 +121,7 @@ void *heap_alloc(size_t size)
     }
     size_t full_chunk_size = max(sizeof(size_t) + size, min_chunk_size);
     mchunkptr next_chunk = (mchunkptr)move_ptr(chunk, full_chunk_size);
-    next_chunk->size = chunk_size - full_chunk_size; // TODO use pointer arithmetic instead?
+    next_chunk->size = chunk_size - full_chunk_size;
 
     next_chunk->prev = chunk_prev;
     next_chunk->next = chunk_next;
@@ -133,6 +133,8 @@ void *heap_alloc(size_t size)
     return chunk_data;
 }
 
+#define relative_addr(ptr) ptr == NULL ? -1 : (char *)ptr - (char *)pages // NOTE only works if ptr is on last page
+
 void heap_free(void *ptr)
 {
     mchunkptr chunk = (mchunkptr)move_ptr(ptr, -sizeof(size_t));
@@ -143,8 +145,35 @@ void heap_free(void *ptr)
     chunk->prev = &freelist_head;
     first->prev->next = chunk;
     first->prev = chunk;
-    // assert((void *)chunk > (void *)pages, "Invalid pointer");
-    // assert((void *)chunk->next > (void *)pages, "Invalid next pointer");
+    mchunkptr next_chunk = move_ptr(ptr, chunk_size);
+    mchunkptr current = freelist_head.next;
+    mchunkptr before = NULL;
+    mchunkptr after = NULL;
+    while (current != &freelist_tail)
+    {
+        if (current == next_chunk)
+        {
+            after = current;
+        }
+        if (move_ptr(current, current->size + sizeof(size_t)) == chunk)
+        {
+            printf("Found before\n");
+            before = current;
+        }
+        current = current->next;
+    }
+    printf("Free analysis\n");
+    printf("Chunk: %ld, before: %ld, after: %ld\n", relative_addr(chunk), relative_addr(before), relative_addr(after));
+    if (after != NULL)
+    {
+        remove_chunk(after);
+        chunk->size += after->size + sizeof(size_t);
+    }
+    if (before != NULL)
+    {
+        remove_chunk(chunk); // extra work since we already added it
+        before->size += chunk->size + sizeof(size_t);
+    }
 }
 
 bool check_is_free(void *ptr)
@@ -178,7 +207,7 @@ void dump_heap()
                 printf("  ");
             }
             size_t current_chunk_size = *current_chunk;
-            printf("Chunk: %d, size: %zu, inuse: %s", ((char *)current_chunk - (char *)current_page), current_chunk_size, bool2str(!check_is_free(current_chunk)));
+            printf("Chunk: %ld, size: %zu, inuse: %s", ((char *)current_chunk - (char *)current_page), current_chunk_size, bool2str(!check_is_free(current_chunk)));
             current_chunk = move_ptr(current_chunk, current_chunk_size + sizeof(size_t));
             if (i % 4 == 3)
             {
@@ -204,7 +233,7 @@ void dump_freelist()
     mchunkptr current = freelist_head.next;
     while (current != &freelist_tail)
     {
-        printf("Chunk: %d, size: %zu | ", current, current->size);
+        printf("Chunk: %p, size: %zu | ", current, current->size);
         current = current->next;
     }
     printf("\n");
@@ -213,26 +242,13 @@ void dump_freelist()
 #define PVAL 10
 #define QVAL 20
 
-// int main()
-// {
-//     char *p = heap_alloc(3);
-//     // *p = "12345678901234568901234";
-//     dump_heap();
-//     dump_freelist();
-//     printf("p: %p, %u ----------------\n", p, sizeof(size_t));
-//     heap_free(p);
-//     dump_heap();
-//     dump_freelist();
-//     return EXIT_SUCCESS;
-// }
-
 int main()
 {
     int i = 0;
     u_int64_t total_allocated = 0;
     typedef long long to_allocate;
     uint64_t size = sizeof(to_allocate);
-    while (i < 16)
+    while (i < 30)
     {
         printf("Iteration %d\n", i);
         to_allocate *p = heap_alloc(size);
@@ -254,7 +270,6 @@ int main()
         *q = QVAL;
 
         i++;
-        printf("(%d) p + q = %lld. expected: %d. Success: %s\n", i, *p + *q, PVAL + QVAL, *p + *q == PVAL + QVAL ? "true" : "false");
         if (*p + *q != PVAL + QVAL)
         {
             printf("Memory corrupted\n");
